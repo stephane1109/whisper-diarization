@@ -1,13 +1,16 @@
 # Core dependencies for the Whisper + pyannote diarization application.
 # The project previously relied on a separate requirements-local.txt file; the
 # dependencies are now consolidated here for easier installation.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 streamlit==1.39.0
 faster-whisper==1.0.3
 # PyTorch 2.6 triggers ``torch.classes`` inspection crashes when pyannote
 # enumerates registered backends.  Version 2.5.1 remains compatible with
-# Python 3.13 and the rest of the stack while avoiding the runtime failure.
-torch==2.5.1
-torchaudio==2.5.1
+# Python 3.12 and avoids the runtime failure.  ``+cpu`` wheels are provided on
+# the official PyTorch index, so we point pip/uv there explicitly.
+torch==2.5.1+cpu
+torchaudio==2.5.1+cpu
 librosa==0.10.2.post1
 numpy==1.26.4
 soundfile==0.12.1
