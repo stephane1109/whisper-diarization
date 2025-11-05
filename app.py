@@ -146,6 +146,63 @@ def transcrire_whisper(chemin_audio: str, modele: str, progress_placeholder) -> 
 # =====================================================================
 # Diarisation pyannote 3.1 (jeton via variable d'environnement)
 # =====================================================================
+def _recuperer_token_hf() -> str:
+    """Récupère le jeton Hugging Face depuis st.secrets ou l'environnement."""
+
+    # Priorité aux secrets Streamlit Cloud
+    try:
+        secrets = st.secrets
+    except Exception:
+        secrets = {}
+
+    candidates = [
+        "HUGGING_FACE_HUB_TOKEN",
+        "HF_TOKEN",
+        "HF_API_TOKEN",
+    ]
+
+    for cle in candidates:
+        if isinstance(secrets, dict) and secrets.get(cle):
+            return str(secrets.get(cle, "")).strip()
+        try:
+            valeur = secrets[cle]  # type: ignore[index]
+        except Exception:
+            valeur = ""
+        if valeur:
+            return str(valeur).strip()
+
+    # Fallback : variables d'environnement (utile en local)
+    for cle in candidates:
+        valeur = os.environ.get(cle, "")
+        if valeur:
+            return valeur.strip()
+
+    return ""
+
+
+@st.cache_resource(show_spinner=False)
+def _charger_pipeline_diarisation(token: str):
+    """Charge le pipeline pyannote en s'authentifiant une seule fois."""
+
+    if not token:
+        raise RuntimeError(
+            "Aucun jeton Hugging Face trouvé. Ajoutez-le dans st.secrets"
+            " (clé HUGGING_FACE_HUB_TOKEN) ou dans la variable"
+            " d'environnement HUGGING_FACE_HUB_TOKEN."
+        )
+
+    from huggingface_hub import login as hf_login
+    from pyannote.audio import Pipeline as PipelineDiarisation
+
+    # Authentification Hugging Face – silencieuse si déjà connectée
+    try:
+        hf_login(token=token, add_to_git_credential=False)
+    except Exception:
+        pass
+
+    return PipelineDiarisation.from_pretrained("pyannote/speaker-diarization-3.1")
+
+
 def diariser_audio(chemin_audio: str, nb_locuteurs: int, seuil: float, progress_placeholder) -> List[Dict]:
     """
     Réalise la diarisation avec pyannote/audio 3.1.
@@ -153,19 +210,9 @@ def diariser_audio(chemin_audio: str, nb_locuteurs: int, seuil: float, progress_
     On traite l'audio par fenêtres pour de longs fichiers, puis on fusionne.
     """
     import torch
-    from huggingface_hub import login as hf_login
-    from pyannote.audio import Pipeline as PipelineDiarisation
 
-    # Auth HF (si secret présent)
-    hf_token = os.environ.get("HUGGING_FACE_HUB_TOKEN", "").strip()
-    if hf_token:
-        try:
-            hf_login(token=hf_token, add_to_git_credential=False)
-        except Exception:
-            pass  # on ignore si déjà loggé
-
-    # Chargement pipeline sans argument token (incompatible v3.1 si fourni)
-    pipeline = PipelineDiarisation.from_pretrained("pyannote/speaker-diarization-3.1")
+    hf_token = _recuperer_token_hf()
+    pipeline = _charger_pipeline_diarisation(hf_token)
 
     # Chargement audio mono/16k
     y, sr = charger_audio_mono16k(chemin_audio, sr_cible=16000)
@@ -248,6 +295,12 @@ def interface():
             "Seuil de clustering",
             value="0.5",
             help="Utilisé si le nombre de locuteurs vaut 0. Plus grand → moins de locuteurs."
+        )
+
+    # Vérification du jeton Hugging Face côté Streamlit Cloud
+    if not _recuperer_token_hf():
+        st.warning(
+            "Aucun jeton Hugging Face détecté. Ajoutez-le dans *Settings → Secrets* (clé `HUGGING_FACE_HUB_TOKEN`) ou définissez la variable d’environnement avant de lancer l’application."
         )
 
     # Import fichier
