@@ -3,10 +3,11 @@
 # dependencies are now consolidated here for easier installation.
 streamlit==1.39.0
 faster-whisper==1.0.3
-# PyTorch 2.6 provides official wheels for Python 3.13.  Keeping torch and
-# torchaudio aligned avoids ABI mismatches during installation.
-torch==2.6.0
-torchaudio==2.6.0
+# PyTorch 2.6 triggers ``torch.classes`` inspection crashes when pyannote
+# enumerates registered backends.  Version 2.5.1 remains compatible with
+# Python 3.13 and the rest of the stack while avoiding the runtime failure.
+torch==2.5.1
+torchaudio==2.5.1
 librosa==0.10.2.post1
 numpy==1.26.4
 soundfile==0.12.1
