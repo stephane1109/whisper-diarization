@@ -2,7 +2,7 @@
 # The project previously relied on a separate requirements-local.txt file; the
 # dependencies are now consolidated here for easier installation.
 streamlit==1.39.0
-openai-whisper @ git+https://github.com/openai/whisper.git@v20231117
+openai-whisper==20231117
 # PyTorch 2.4.x is the first release line that ships ready-made wheels for
 # Python 3.12, which is what modern Streamlit runtimes provide.  Keeping
 # torch and torchaudio in the same minor series avoids ABI mismatches during
