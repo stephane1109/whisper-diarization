@@ -91,18 +91,19 @@ def generer_document(segments_attr: List[Dict]) -> str:
     return "\n\n".join(lignes)
 
 # =====================================================================
-# Transcription Whisper (modèles base/small/medium) en français
+# Transcription Faster-Whisper (modèle configurable) en français
 # =====================================================================
 @st.cache_resource(show_spinner=False)
 def _charger_modele_whisper(modele: str) -> WhisperModel:
     """Charge et met en cache un modèle Faster-Whisper côté serveur."""
+    modele = (modele or "").strip() or "distil-large-v2"
     compute_type = "int8"  # adapté au CPU sur les runtimes Streamlit
     return WhisperModel(modele, device="cpu", compute_type=compute_type)
 
 
 def transcrire_whisper(chemin_audio: str, modele: str, progress_placeholder) -> (List[Dict], str):
     """
-    Transcrit l'audio avec Faster-Whisper (modèles CPU: base/small/medium).
+    Transcrit l'audio avec Faster-Whisper (modèle configurable depuis l'interface).
     La langue est forcée en français.
     Retourne (segments, texte_global).
     """
@@ -147,7 +148,15 @@ def transcrire_whisper(chemin_audio: str, modele: str, progress_placeholder) -> 
 # Diarisation pyannote 3.1 (jeton via variable d'environnement)
 # =====================================================================
 def _recuperer_token_hf() -> str:
-    """Récupère le jeton Hugging Face depuis st.secrets ou l'environnement."""
+    """Récupère le jeton Hugging Face depuis l'UI, st.secrets ou l'environnement."""
+
+    # Valeur saisie par l'utilisateur dans l'interface
+    try:
+        token_ui = st.session_state.get("hf_token_user", "")
+    except Exception:
+        token_ui = ""
+    if token_ui:
+        return str(token_ui).strip()
 
     # Priorité aux secrets Streamlit Cloud
     try:
@@ -187,8 +196,8 @@ def _charger_pipeline_diarisation(token: str):
     if not token:
         raise RuntimeError(
             "Aucun jeton Hugging Face trouvé. Ajoutez-le dans st.secrets"
-            " (clé HUGGING_FACE_HUB_TOKEN) ou dans la variable"
-            " d'environnement HUGGING_FACE_HUB_TOKEN."
+            " (clé HUGGING_FACE_HUB_TOKEN), saisissez-le dans l'interface"
+            " ou définissez la variable d'environnement HUGGING_FACE_HUB_TOKEN."
         )
 
     from huggingface_hub import login as hf_login
@@ -206,7 +215,7 @@ def _charger_pipeline_diarisation(token: str):
 def diariser_audio(chemin_audio: str, nb_locuteurs: int, seuil: float, progress_placeholder) -> List[Dict]:
     """
     Réalise la diarisation avec pyannote/audio 3.1.
-    Le jeton HF doit être dans la variable d'environnement HUGGING_FACE_HUB_TOKEN.
+    Le jeton HF peut être saisi dans l'interface ou fourni via les secrets/variables d'environnement.
     On traite l'audio par fenêtres pour de longs fichiers, puis on fusionne.
     """
     import torch
@@ -268,19 +277,40 @@ def interface():
 
     # Phrase explicative simple (FR)
     st.markdown(
-        "Cette application permet de transcrire un fichier audio en français avec Whisper "
-        "(modèles base, small, medium) et d’identifier les locuteurs avec pyannote.audio. "
+        "Cette application permet de transcrire un fichier audio en français avec Faster-Whisper "
+        "(modèle configurable) et d’identifier les locuteurs avec pyannote.audio. "
         "Vous pouvez indiquer le nombre de locuteurs (ou laisser 0 pour détection automatique) "
         "et ajuster le seuil de regroupement si nécessaire. Les résultats sont téléchargeables en texte."
     )
 
-    # Choix modèle Whisper
-    modele = st.selectbox(
-        "Modèle Whisper",
-        options=["base", "small", "medium"],
-        index=1,
-        help="Choisir la taille du modèle de transcription (langue forcée en français)."
-    )
+    # Choix modèle Faster-Whisper
+    if "modele_whisper" not in st.session_state:
+        st.session_state.modele_whisper = "distil-large-v2"
+    modele = st.text_input(
+        "Modèle Faster-Whisper",
+        value=st.session_state.modele_whisper,
+        help=(
+            "Indiquez l'identifiant du modèle Faster-Whisper à utiliser (ex. `distil-large-v2`, "
+            "`Systran/faster-whisper-small`)."
+        ),
+    ).strip()
+    if modele and modele != st.session_state.modele_whisper:
+        st.session_state.modele_whisper = modele
+    modele_effectif = modele or st.session_state.get("modele_whisper", "")
+
+    # Saisie du jeton pyannote / Hugging Face
+    token_defaut = st.session_state.get("hf_token_user", "")
+    token_saisi = st.text_input(
+        "Jeton Hugging Face pour pyannote",
+        value=token_defaut,
+        type="password",
+        help=(
+            "Obligatoire sur Streamlit Cloud si le jeton n'est pas défini dans *Settings → Secrets*. "
+            "Le jeton reste stocké dans la session utilisateur uniquement."
+        ),
+    ).strip()
+    if token_saisi != token_defaut:
+        st.session_state.hf_token_user = token_saisi
 
     # Paramètres diarisation
     col1, col2 = st.columns(2)
@@ -300,7 +330,8 @@ def interface():
     # Vérification du jeton Hugging Face côté Streamlit Cloud
     if not _recuperer_token_hf():
         st.warning(
-            "Aucun jeton Hugging Face détecté. Ajoutez-le dans *Settings → Secrets* (clé `HUGGING_FACE_HUB_TOKEN`) ou définissez la variable d’environnement avant de lancer l’application."
+            "Aucun jeton Hugging Face détecté. Ajoutez-le dans *Settings → Secrets* (clé `HUGGING_FACE_HUB_TOKEN`), "
+            "dans la variable d’environnement correspondante ou saisissez-le ci-dessus."
         )
 
     # Import fichier
@@ -373,7 +404,7 @@ def interface():
 
         # Transcription
         try:
-            seg_w, texte_global = transcrire_whisper(chemin, modele, progress_placeholder=ph_trans)
+            seg_w, texte_global = transcrire_whisper(chemin, modele_effectif, progress_placeholder=ph_trans)
         except Exception as e:
             st.error(f"Erreur pendant la transcription : {e}")
             return
