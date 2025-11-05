@@ -2,13 +2,11 @@
 # The project previously relied on a separate requirements-local.txt file; the
 # dependencies are now consolidated here for easier installation.
 streamlit==1.39.0
-openai-whisper==20231117
-# PyTorch 2.4.x is the first release line that ships ready-made wheels for
-# Python 3.12, which is what modern Streamlit runtimes provide.  Keeping
-# torch and torchaudio in the same minor series avoids ABI mismatches during
-# installation.
-torch==2.4.1
-torchaudio==2.4.1
+faster-whisper==1.0.3
+# PyTorch 2.6 provides official wheels for Python 3.13.  Keeping torch and
+# torchaudio aligned avoids ABI mismatches during installation.
+torch==2.6.0
+torchaudio==2.6.0
 librosa==0.10.2.post1
 numpy==1.26.4
 soundfile==0.12.1
