@@ -13,6 +13,7 @@ from typing import Tuple, List, Dict, Optional
 
 import numpy as np
 import soundfile as sf
+from faster_whisper import WhisperModel
 
 
 def verifier_ffmpeg_disponible() -> None:
@@ -78,14 +79,13 @@ def lire_wave(chemin_wav: str) -> Tuple[np.ndarray, int]:
     return data, int(sr)
 
 
-def charger_modele_whisper(nom_modele: str, appareil: str = "cpu"):
-    """Charge un modèle Whisper officiel ('base' | 'small' | 'medium')."""
+def charger_modele_whisper(nom_modele: str, appareil: str = "cpu", compute_type: str | None = None):
+    """Charge un modèle Faster-Whisper ('base' | 'small' | 'medium')."""
     try:
-        import whisper  # paquet openai-whisper
-    except Exception as e:
-        raise RuntimeError(f"Le paquet 'whisper' n'est pas installé correctement : {e}")
-    try:
-        return whisper.load_model(nom_modele, device=appareil)
+        ct = compute_type
+        if ct is None:
+            ct = "int8" if appareil == "cpu" else "float16"
+        return WhisperModel(nom_modele, device=appareil, compute_type=ct)
     except Exception as e:
         raise RuntimeError(f"Chargement du modèle Whisper '{nom_modele}' impossible : {e}")
 
@@ -123,19 +123,21 @@ def transcrire_par_fenetres(
         morceau = y[i0:i1].astype(np.float32)
 
         try:
-            # L’API Whisper officielle s’attend normalement à un chemin ou un waveform complet ;
-            # ici on transcrit bloc par bloc pour afficher une progression utilisateur.
-            # On recompose ensuite les timecodes avec l’offset t0.
-            result = modele_whisper.transcribe(
-                morceau, language=langue, task="transcribe", fp16=False, verbose=False
+            segments_iter, _ = modele_whisper.transcribe(
+                morceau,
+                language=langue,
+                task="transcribe",
+                condition_on_previous_text=False,
+                vad_filter=False,
+                beam_size=5,
             )
         except Exception as e:
             raise RuntimeError(f"Erreur Whisper pendant la transcription : {e}")
 
-        for s in result.get("segments", []):
-            s0 = float(s.get("start", 0.0)) + t0
-            s1 = float(s.get("end", 0.0)) + t0
-            txt = (s.get("text", "") or "").strip()
+        for s in segments_iter:
+            s0 = float(getattr(s, "start", 0.0) or 0.0) + t0
+            s1 = float(getattr(s, "end", 0.0) or 0.0) + t0
+            txt = (getattr(s, "text", "") or "").strip()
             segments.append({"start": s0, "end": s1, "text": txt})
             if txt:
                 textes.append(txt)

@@ -7,6 +7,7 @@ from typing import List, Dict
 import numpy as np
 import streamlit as st
 import soundfile as sf
+from faster_whisper import WhisperModel
 
 # =====================================================================
 # Configuration de la page
@@ -92,47 +93,51 @@ def generer_document(segments_attr: List[Dict]) -> str:
 # =====================================================================
 # Transcription Whisper (modèles base/small/medium) en français
 # =====================================================================
+@st.cache_resource(show_spinner=False)
+def _charger_modele_whisper(modele: str) -> WhisperModel:
+    """Charge et met en cache un modèle Faster-Whisper côté serveur."""
+    compute_type = "int8"  # adapté au CPU sur les runtimes Streamlit
+    return WhisperModel(modele, device="cpu", compute_type=compute_type)
+
+
 def transcrire_whisper(chemin_audio: str, modele: str, progress_placeholder) -> (List[Dict], str):
     """
-    Transcrit l'audio avec openai-whisper (modèles CPU: base/small/medium).
+    Transcrit l'audio avec Faster-Whisper (modèles CPU: base/small/medium).
     La langue est forcée en français.
     Retourne (segments, texte_global).
     """
-    import whisper
 
     # Indication de progression – début transcription
     bar = progress_placeholder.progress(0.0, text="Transcription 0%")
 
-    # Chargement du modèle
-    # Les modèles "base", "small", "medium" sont multilingues.
-    # On force language='fr' pour la transcription en français.
-    model = whisper.load_model(modele)
+    # Chargement du modèle (en cache Streamlit)
+    model = _charger_modele_whisper(modele)
 
-    # Paramètres pour stabilité en FR
-    options = dict(
+    # Exécution via Faster-Whisper
+    segments_iter, info = model.transcribe(
+        chemin_audio,
         language="fr",
         task="transcribe",
         condition_on_previous_text=False,
-        fp16=False,
-        verbose=False,
+        vad_filter=False,
+        beam_size=5,
     )
 
-    # Exécution
-    result = model.transcribe(chemin_audio, **options)
-
-    # Extraction segments
+    duree = float(getattr(info, "duration", 0.0) or 0.0)
     segments = []
     textes = []
-    for i, seg in enumerate(result.get("segments", [])):
-        s0 = float(seg.get("start", 0.0))
-        s1 = float(seg.get("end", 0.0))
-        txt = (seg.get("text") or "").strip()
+
+    for seg in segments_iter:
+        s0 = float(getattr(seg, "start", 0.0) or 0.0)
+        s1 = float(getattr(seg, "end", 0.0) or 0.0)
+        txt = (getattr(seg, "text", "") or "").strip()
         segments.append({"start": s0, "end": s1, "text": txt})
         if txt:
             textes.append(txt)
-        # Progression approximative
-        if len(result.get("segments", [])) > 0:
-            bar.progress(min(1.0, (i + 1) / len(result["segments"])), text=f"Transcription {int((i + 1) * 100 / len(result['segments']))}%")
+
+        if duree > 0.0:
+            ratio = min(max(s1 / duree, 0.0), 1.0)
+            bar.progress(ratio, text=f"Transcription {int(ratio * 100):d}%")
 
     bar.progress(1.0, text="Transcription 100%")
     texte_global = " ".join(textes).strip()
