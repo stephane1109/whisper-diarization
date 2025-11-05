@@ -1,5 +1,13 @@
-# All runtime dependencies are already provided in the execution environment used by this project.
-# Keeping this file intentionally empty prevents the platform from attempting to download the
-# packages via pip, which fails because outbound internet access is blocked (ProxyError 403).
-#
-# For local development, install the dependencies listed in requirements-local.txt instead.
+# Core dependencies for the Whisper + pyannote diarization application.
+# The project previously relied on a separate requirements-local.txt file; the
+# dependencies are now consolidated here for easier installation.
+streamlit==1.39.0
+openai-whisper==20231117
+torch==2.2.2
+torchaudio==2.2.2
+librosa==0.10.2.post1
+numpy==1.26.4
+soundfile==0.12.1
+ffmpeg-python==0.2.0
+huggingface_hub==0.23.0
+pyannote.audio==3.1.1
