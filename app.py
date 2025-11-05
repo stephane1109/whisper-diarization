@@ -184,7 +184,16 @@ def diariser_audio(chemin_audio: str, nb_locuteurs: int, seuil: float, progress_
         i0, i1 = int(t0 * sr), int(t1 * sr)
         morceau = {"waveform": torch.from_numpy(y[i0:i1]).unsqueeze(0), "sample_rate": sr}
 
-        diar = pipeline(morceau, num_speakers=None if nb_locuteurs <= 0 else nb_locuteurs, threshold=None if nb_locuteurs > 0 else float(seuil))
+        # pyannote>=3.1 attend une valeur numérique ou une fonction de décision pour
+        # ``threshold``. Lui passer ``None`` (cas ``nb_locuteurs > 0``) provoque
+        # une erreur ``'NoneType' object is not callable`` lorsque le pipeline
+        # tente d'utiliser ce seuil. On n'ajoute donc le paramètre ``threshold``
+        # que lorsque l'on souhaite laisser pyannote déterminer le nombre de
+        # locuteurs automatiquement.
+        if nb_locuteurs > 0:
+            diar = pipeline(morceau, num_speakers=nb_locuteurs)
+        else:
+            diar = pipeline(morceau, num_speakers=None, threshold=float(seuil))
 
         for (seg, _, spk) in diar.itertracks(yield_label=True):
             bruts.append({"start": float(seg.start) + t0, "end": float(seg.end) + t0, "speaker": str(spk)})
